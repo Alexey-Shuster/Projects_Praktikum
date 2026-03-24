@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Game Server - Main</title>
+    
+    <!-- Подключение внешних ресурсов -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Подключение локальных стилей -->
+    <link rel="stylesheet" href="custom-index-data/styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Заголовок -->
+        <div class="header">
+            <div class="logo">
+                <i class="fas fa-gamepad fa-4x"></i>
+                <h1>Game Server</h1>
+            </div>
+            <p class="tagline">A lightweight game server with web interface and REST API</p>
+            
+            <div class="status">
+                <div class="status-indicator">
+                    <div class="status-dot"></div>
+                    Server is running on port 8080
+                </div>
+            </div>
+        </div>
+        
+        <!-- Основной контент -->
+        <div class="content">
+            <!-- Левая колонка: Навигация -->
+            <div class="card">
+                <h2><i class="fas fa-compass"></i> Navigation</h2>
+                <ul class="nav-links">
+                    <li>
+                        <a href="/about.html">
+                            <i class="fas fa-info-circle"></i>
+                            <span>About Page</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/game.html">
+                            <i class="fas fa-gamepad"></i>
+                            <span>Start Game</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/load_simulator.html">
+                            <i class="fas fa-tachometer-alt"></i>
+                            <span>Load Simulator</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/missing-page.html">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <span>404 Test Page</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="file%20with+spaces.html">
+                            <i class="fas fa-file-alt"></i>
+                            <span>File with Spaces</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/images/../about.html">
+                            <i class="fas fa-code-branch"></i>
+                            <span>Path Traversal Test</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/abc..html">
+                            <i class="fas fa-bug"></i>
+                            <span>Double Dot File</span>
+                        </a>
+                    </li>
+                </ul>
+                
+                <div class="api-section">
+                    <h3>Direct API Access</h3>
+                    <p class="api-description">
+                        Access specific map by ID
+                    </p>
+                    
+                    <div class="form-group">
+                        <label for="map-id-input">
+                            <i class="fas fa-map-marker-alt"></i>
+                            Map ID
+                        </label>
+                        <div class="api-input-group">
+                            <span class="api-prefix">/api/v1/maps/</span>
+                            <input type="text" 
+                                   id="map-id-input" 
+                                   class="form-input api-input" 
+                                   placeholder="Enter map ID"
+                                   onkeydown="handleMapIdKeydown(event)">
+                        </div>
+                        <button id="go-to-map-btn" class="api-go-btn">
+                            <i class="fas fa-arrow-right"></i>
+                            Go
+                        </button>
+                    </div>
+                    
+                    <ul class="nav-links">
+                        <li>
+                            <a href="javascript:void(0)" id="browse-maps-link" class="api-link">
+                                <i class="fas fa-map"></i>
+                                <span>Browse all maps: /api/v1/maps</span>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- Правая колонка: Форма входа (now 2x wider) -->
+            <div class="card">
+                <h2><i class="fas fa-sign-in-alt"></i> Player Login</h2>
+                
+                <!-- Сообщения об ошибках/успехе -->
+                <div id="alert-message" class="alert hidden"></div>
+                
+                <!-- Форма входа -->
+                <form id="player-login-form">
+                    <div class="form-group">
+                        <label for="player-name">
+                            <i class="fas fa-user"></i>
+                            Player Name
+                        </label>
+                        <input type="text" 
+                               id="player-name" 
+                               class="form-input" 
+                               placeholder="Enter your name" 
+                               required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="map-select">
+                            <i class="fas fa-map-marked"></i>
+                            Select Map
+                        </label>
+                        <select id="map-select" class="form-select" required>
+                            <option value="" disabled selected>Loading maps...</option>
+                        </select>
+                    </div>
+                    
+                    <button type="submit" id="login-btn" class="submit-btn">
+                        <i class="fas fa-play"></i>
+                        Start Game
+                    </button>
+                </form>
+                
+                <!-- Секция API -->
+                <div class="api-section">
+                    <h3>Game API Endpoints</h3>
+                    
+                    <!-- Auth Token Input -->
+                    <div class="form-group">
+                        <label for="auth-token">
+                            <i class="fas fa-key"></i>
+                            Auth Token
+                        </label>
+                        <input type="text" 
+                               id="auth-token" 
+                               class="form-input" 
+                               placeholder="Enter auth token from /join response">
+                    </div>
+                    
+                    <!-- API Endpoints Table -->
+                    <table class="api-table">
+                        <thead>
+                            <tr>
+                                <th>API Endpoint</th>
+                                <th>Actions</th>
+                                <th>Additional Inputs</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- POST /api/v1/game/join -->
+                            <tr>
+                                <td>
+                                    <div class="api-endpoint">
+                                        <span class="method method-post">POST</span>
+                                        <span>/api/v1/game/join</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="endpoint-actions">
+                                        <button class="table-test-btn" data-endpoint="join">Test</button>
+                                        <button class="table-response-btn" data-endpoint="join">Response</button>
+                                    </div>
+                                </td>
+                                <td>
+                                    <em>Uses form data above</em>
+                                </td>
+                            </tr>
+                            
+                            <!-- GET /api/v1/game/players -->
+                            <tr>
+                                <td>
+                                    <div class="api-endpoint">
+                                        <span class="method method-get">GET</span>
+                                        <span>/api/v1/game/players</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="endpoint-actions">
+                                        <button class="table-test-btn" data-endpoint="players">Test</button>
+                                    </div>
+                                </td>
+                                <td>
+                                    <em>Players summary</em>
+                                </td>
+                            </tr>
+                            
+                            <!-- GET /api/v1/game/state -->
+                            <tr>
+                                <td>
+                                    <div class="api-endpoint">
+                                        <span class="method method-get">GET</span>
+                                        <span>/api/v1/game/state</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="endpoint-actions">
+                                        <button class="table-test-btn" data-endpoint="state">Test</button>
+                                    </div>
+                                </td>
+                                <td>
+                                    <em>Players info-state</em>
+                                </td>
+                            </tr>
+                            
+                            <!-- POST /api/v1/game/player/action -->
+                            <tr>
+                                <td>
+                                    <div class="api-endpoint">
+                                        <span class="method method-post">POST</span>
+                                        <span>/api/v1/game/player/action</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="endpoint-actions">
+                                        <button class="table-test-btn" data-endpoint="action">Test</button>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="inline-action-form">
+                                        <div class="form-group">
+                                            <label>Move Direction</label>
+                                            <select id="action-move" class="compact-action-select">
+                                                <option value="L">Left (West)</option>
+                                                <option value="R" selected>Right (East)</option>
+                                                <option value="U">Up (North)</option>
+                                                <option value="D">Down (South)</option>
+                                                <option value="">Stop (Empty string)</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="form-group" style="flex: 2;">
+                                            <label>Request Preview</label>
+                                            <div id="request-preview" class="compact-preview-box">
+                                                {"move": "R"}
+                                            </div>
+                                        </div>
+                                        
+                                        <button class="action-send-btn send-action-btn">
+                                            <i class="fas fa-paper-plane"></i>
+                                            Send Action
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <!-- NEW: POST /api/v1/game/tick -->
+                            <tr>
+                                <td>
+                                    <div class="api-endpoint">
+                                        <span class="method method-post">POST</span>
+                                        <span>/api/v1/game/tick</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="endpoint-actions">
+                                        <button class="table-test-btn" data-endpoint="tick">Test</button>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="inline-action-form">
+                                        <div class="form-group" style="flex: 1;">
+                                            <label>Time Delta (ms)</label>
+											<input type="text" 
+												   id="tick-time-delta" 
+												   class="compact-action-select" 
+												   value="100" 
+												   placeholder="100"
+												   pattern="[0-9]*"
+												   inputmode="numeric"
+												   title="Enter time delta in milliseconds (e.g., 100)">
+                                        </div>
+                                        
+                                        <div class="form-group" style="flex: 2;">
+                                            <label>Request Preview</label>
+                                            <div id="tick-preview" class="compact-preview-box">
+                                                {"timeDelta": 100}
+                                            </div>
+                                        </div>
+                                        
+                                        <button class="action-send-btn send-tick-btn">
+                                            <i class="fas fa-clock"></i>
+                                            Send Tick
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <!-- Response Display Area -->
+                    <div id="api-response-container" class="hidden">
+                        <h4>API Response:</h4>
+                        <pre id="api-response"></pre>
+                        <div class="response-actions">
+                            <button id="proceed-to-game-btn" class="submit-btn">Proceed to Game</button>
+                            <button id="close-response-btn" class="api-go-btn">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Подвал -->
+        <div class="footer">
+            <p>Game Server v1.0 • All links are relative to server root</p>
+            <p>Current time: <span id="current-time"></span></p>
+        </div>
+    </div>
+    
+    <!-- Подключение JavaScript -->
+    <script src="custom-index-data/main.js"></script>
+</body>
+</html>
