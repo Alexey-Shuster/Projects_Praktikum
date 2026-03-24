@@ -1,0 +1,1 @@
+.\game_server.exe -t 50 -c ../../data/config.json -w ../../static -b -n -r
