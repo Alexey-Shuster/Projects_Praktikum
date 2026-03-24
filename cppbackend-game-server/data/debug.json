@@ -1,0 +1,41 @@
+{
+  "defaultDogSpeed": 5.0,
+  "lootGeneratorConfig": {
+    "period": 0.1,
+    "probability": 1.0
+  },
+  "dogRetirementTime": 10.0,
+  "maps": [
+    {
+      "id": "debug",
+      "name": "Debug Map",
+      "lootTypes": [
+        {
+          "name": "key",
+          "file": "assets/key.obj",
+          "type": "obj",
+          "rotation": 90,
+          "color": "#338844",
+          "scale": 0.03,
+          "value": 10
+        }
+      ],
+      "roads": [
+        { "x0": 0, "y0": 0, "x1": 10 },
+        { "x0": 10, "y0": 0, "y1": 10 },
+        { "x0": 0, "y0": 0, "y1": 10 },
+        { "x0": 0, "y0": 10, "x1": 10 },
+        { "x0": 5, "y0": 5, "x1": 0 },
+        { "x0": 5, "y0": 5, "x1": 10 },
+        { "x0": 5, "y0": 5, "y1": 0 },
+        { "x0": 5, "y0": 5, "y1": 10 }
+      ],
+      "buildings": [
+        { "x": 2, "y": 2, "w": 2, "h": 2 }
+      ],
+      "offices": [
+        { "id": "office0", "x": 5, "y": 5, "offsetX": 1, "offsetY": 1 }
+      ]
+    }
+  ]
+}
