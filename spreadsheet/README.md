@@ -1,7 +1,7 @@
 # Spreadsheet Engine
 
 A C++17 spreadsheet library that supports **text cells**, **arithmetic formulas**, and **cell references**.  
-Built with a custom ANTLR‑based formula parser, automatic dependency tracking, and circular detection.
+Built with a custom ANTLR‑based formula parser, automatic dependency tracking and circular detection.
 
 ## Features
 
