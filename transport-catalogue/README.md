@@ -1,10 +1,10 @@
 # Transport Directory System
 
-A C++17 application that builds a public transport directory from JSON input, supports queries for stops, bus routes, and routing between stops, and renders an interactive SVG map of the route network.
+A C++17 application that builds a public transport directory from JSON input, supports queries for stops, bus routes and routing between stops and renders an interactive SVG map of the route network.
 
 ## Features
 
-- **JSON input/output** – reads `base_requests` (stops, routes, distances) and `stat_requests` from stdin; outputs JSON answers.
+- **JSON input/output** – reads `base_requests` (stops, routes, distances) and `stat_requests` from `std::cin`; outputs JSON answers.
 - **Stop and route management** – stores stops with geographic coordinates, routes with lists of stops, real distances between stops, and computes route curvature.
 - **Routing between stops** – builds a directed weighted graph (vertices = waiting/boarding states) and finds optimal paths using bus wait times and travel speeds.
 - **Map rendering** – generates an SVG map with configurable colors, line widths, label fonts, and projections from geographic coordinates to screen space.
@@ -13,7 +13,7 @@ A C++17 application that builds a public transport directory from JSON input, su
 
 ## Dependencies
 
-- **C++17** compiler (GCC 9+, Clang 10+, MSVC 2019+)
+- **C++17** compiler (GCC, Clang, MSVC)
 - **CMake 3.10+**
 - No external libraries – all components (JSON, SVG, graph, router) are implemented from scratch.
 
