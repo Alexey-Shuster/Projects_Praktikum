@@ -17,3 +17,6 @@
 
 * **[spreadsheet](spreadsheet)**
   This project implements a `Spreadsheet` engine in C++17 that supports text cells and arithmetic formulas with cell references. It includes a custom formula parser built with `ANTLR`, circular dependency detection, error handling (e.g., division by zero, invalid references) and the ability to print the sheet as values or raw texts. The code provides a complete `SheetInterface` with methods for setting, getting and clearing cells, as well as computing printable size.
+
+* **[transport-catalogue](transport-catalogue)**
+  This project implements a transport directory system in C++17 that processes `JSON` input to build a database of bus stops and routes, computes route lengths and curvatures, performs graph-based routing between stops, and renders an `SVG` map. It uses custom JSON parsing/building, a directed weighted graph for route finding and a map renderer with configurable visual settings. The application reads base requests and stat requests from `std::cin`, then outputs JSON responses and SVG maps.
