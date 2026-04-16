@@ -5,3 +5,6 @@
 
 * **[Image Converter](image-converter)**
   A `C++17` tool for converting `BMP`, `JPEG`, and `PPM` images. Requires `LibJPEG`.
+
+* **[preprocessor](preprocessor)**
+  A lightweight tool that recursively processes `#include` directives in C++ source files, resolving both quoted and angle-bracketed includes using custom search directories.
