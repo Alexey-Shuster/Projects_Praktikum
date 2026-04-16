@@ -3,7 +3,7 @@
 * **[advanced-vector](advanced-vector)**
   A header-only custom C++ vector container. Employs `RawMemory` with manual construction/destruction and strong exception safety. Supports `Emplace`/`EmplaceBack` with Copy\Move semantics based on type traits. Designed for benchmarking against `std::vector`.
 
-* **[Image Converter](image-converter)**
+* **[image-converter](image-converter)**
   A `C++17` tool for converting `BMP`, `JPEG`, and `PPM` images. Requires `LibJPEG`.
 
 * **[preprocessor](preprocessor)**
