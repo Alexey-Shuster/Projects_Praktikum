@@ -11,3 +11,6 @@
 
 * **[simple-vector](simple-vector)**
   A simple C++ vector implementation. Uses `ArrayPtr` with simple reallocation logic. Relies on temporary copies for insertion and less optimal growth.
+
+* **[single-linked-list](single-linked-list)**
+  A simple linked list with forward iterators, strong exception safety and operations like `InsertAfter`, `EraseAfter`, `PushFront`, and `PopFront`.
