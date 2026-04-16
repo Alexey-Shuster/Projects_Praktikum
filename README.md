@@ -14,3 +14,6 @@
 
 * **[single-linked-list](single-linked-list)**
   A simple linked list with forward iterators, strong exception safety and operations like `InsertAfter`, `EraseAfter`, `PushFront`, and `PopFront`.
+
+* **[spreadsheet](spreadsheet)**
+  This project implements a `Spreadsheet` engine in C++17 that supports text cells and arithmetic formulas with cell references. It includes a custom formula parser built with `ANTLR`, circular dependency detection, error handling (e.g., division by zero, invalid references) and the ability to print the sheet as values or raw texts. The code provides a complete `SheetInterface` with methods for setting, getting and clearing cells, as well as computing printable size.
