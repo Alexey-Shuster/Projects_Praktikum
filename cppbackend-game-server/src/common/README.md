@@ -89,5 +89,5 @@ ticker->Start();
 
 ---
 
-*This common module is part of a larger Game Server project – a multiplayer online game where players control dogs, collect loot, and compete on procedurally generated maps.*
+*This module is part of a larger Game Server project – a multiplayer online game where players control dogs, collect loot, and compete on procedurally generated maps.*
 ```
