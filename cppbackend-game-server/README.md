@@ -113,8 +113,8 @@ Flow:
 | **Boost** (1.78+) | Log, Program Options, Asio, Beast, JSON, Date_Time, Filesystem, Serialization |
 | **libpqxx / libpq** | PostgreSQL client (connection pooling, queries) |
 | **C++17/20 STL** | `std::filesystem`, `std::chrono`, `std::random`, `std::unordered_map`, smart pointers |
-| **Catch2** | Unit tests (game model, loot generator, collision detection, serialisation, database) |
-| **Conan** | Package management (dependencies + CMake integration) |
+| **Catch2** (3.4) | Unit tests (game model, loot generator, collision detection, serialisation, database) |
+| **Conan** (1.66) | Package management (dependencies + CMake integration) |
 | **Docker** | Two‑stage build (gcc:11.3 for compilation, ubuntu:22.04 for runtime) |
 
 ---
