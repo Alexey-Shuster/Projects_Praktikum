@@ -1,93 +1,85 @@
-# Common Module for Game Server
+# Road Navigation Module for Game Server
 
-The `/src/common/` directory contains shared infrastructure code used across the Game Server project: logging, configuration loading, JSON utilities, strong type definitions, geometry helpers, HTTP helpers, and a generic ticker for time‑driven updates.
+The `/src/game_model/road_engine/` directory provides road-based movement constraints and pathfinding over the road network. `RoadEngine` handles road lookup, position validation, and movement clamping; `RoadGraph` builds a graph from roads and performs shortest‑path queries (used for AI bot navigation).
 
 ## Code Description
 
-- **Logging** (`boost_logger.cpp/h`) – Wraps Boost.Log to produce structured JSON logs with custom attributes (timestamp, severity, additional data). Supports console and file sinks with rotation.
-- **Command‑line parsing** (`cmd_parser.h`) – Uses Boost.Program_Options to parse arguments like `--tick-period`, `--config-file`, `--www-root`, and various boolean flags.
-- **Constants** (`constants.h`) – Centralises numeric constants, JSON field names, HTTP content types, API paths, error codes, and game logic parameters.
-- **JSON game loader** (`json_loader.cpp/h`) – Loads the game configuration from a JSON file (maps, roads, buildings, offices, loot types, loot generator settings) and constructs the domain model (`model::Game`).
-- **Tagged types** (`tagged.h`) – Implements a type‑safe wrapper (`Tagged<Value, Tag>`) to avoid accidental mixing of semantically different values (e.g. `Office::Id` vs `Map::Id`).
-- **Utilities** (`utils.cpp/h`) – Provides filesystem helpers (sub‑path verification), geometry calculations, direction↔string conversions, random number generation, URL decoding, MIME type detection, and HTTP header parsing.
-- **Ticker** (`ticker.h`) – A timer that runs on a `boost::asio::strand` and invokes a user callback at fixed intervals, used for the game loop and state updates.
-- **Main utilities** (`main_utils.h`) – Contains environment configuration (database URL), test database cleanup, worker thread management, and a portable pause function.
+- **RoadEngine** (`road_engine.cpp/h`) – Efficient spatial index for roads. Builds separate indexes for horizontal and vertical roads by coordinate. Provides:
+  - `IsPositionOnRoad()` – checks if a point lies on a given road (within half‑width tolerance).
+  - `FindRoadsAtPosition()` – returns all roads containing a point.
+  - `ChooseRoadForMovement()` – given a start position, target, and direction, selects the road that allows movement (respecting road orientation).
+  - `ClampPositionToRoadBounds()` – snaps an out‑of‑bounds position back to the road’s bounding box.
+  - Road bounds caching (bounding rectangles with half‑width) for performance.
+- **RoadGraph** (`road_graph.cpp/h`) – Builds a graph from the road network for pathfinding. Nodes are placed at:
+  - All road endpoints.
+  - All intersections where a horizontal and vertical road cross.
+  - Edges connect consecutive nodes along each road.
+  - Implements A* search (`FindPath()`) to compute shortest paths between arbitrary points on the road network.
+  - Uses `RoadEngine` for geometric queries (point‑on‑road, roads at a point) to avoid duplication.
 
 ## Patterns Used
 
-- **RAII** – Automatic resource management for file handles, log sinks, and timers (`json_loader`, `boost_logger`).
-- **Factory** – `json_loader::LoadGame()` constructs the complete `model::Game` from a JSON configuration.
-- **Strategy** – `MyFormatter` / `MyFormatterJSON` provide swappable log output formats (plain text vs JSON).
-- **Tagged Type (Strong Typedef)** – `tagged.h` provides type‑safe wrappers (e.g. `Office::Id`, `Map::Id`) preventing implicit conversions.
-- **Strand‑based Asynchronous Execution** – `ticker.h` uses `boost::asio::strand` for thread‑safe callback dispatch.
-- **Builder** – Step‑by‑step construction of complex game objects from JSON (`LoadMaps()`, `LoadRoads()`, etc.).
-- **Singleton (implicit)** – `boost::log::core` global logging core accessed via static methods.
+- **Spatial Index** – `RoadEngine` uses `std::map` keyed by y‑coordinate (horizontal roads) and x‑coordinate (vertical roads) for O(log n) lookup of candidate roads.
+- **Caching** – Road bounds are precomputed and stored in an `unordered_map` keyed by `(start, end)` pair.
+- **Graph Construction** – `RoadGraph` builds nodes and edges from the road network, then applies A* for pathfinding.
+- **Strategy / Delegation** – `RoadGraph` delegates point‑on‑road queries to an external `RoadEngine`, allowing reuse of the same geometric logic.
+- **Temporary Nodes in Search** – During pathfinding, start and goal points are added as temporary nodes with edges to adjacent graph nodes, then removed after search.
 
 ## Libraries Used
 
-- Boost.Log – Structured logging with severity levels, attributes, and sinks.
-- Boost.Program_Options – Command‑line argument parsing.
-- Boost.Asio – I/O context, strands, timers (used by `Ticker`).
-- Boost.Beast – HTTP components (referenced in `utils.h` for request handling).
-- Boost.JSON – JSON parsing and serialisation.
-- Boost.Date_Time – Timestamp formatting for logs.
-- C++17 / C++20 STL – Filesystem, chrono, random, unordered containers, smart pointers.
-- PostgreSQL (libpqxx) – Indirectly used via environment helpers in `main_utils.h`.
+- C++17 / C++20 STL – `vector`, `map`, `unordered_map`, `unordered_set`, `queue`, `algorithm`, `ranges`, `cmath`.
+- Project‑internal – `common/utils.h` (tolerance checks, random, geometry conversions), `common/constants.h` (road half‑width, double tolerance), `common/boost_logger.h` (error logging).
 
 ## Files Summary
 
 | File | Purpose |
 |------|---------|
-| `boost_logger.cpp/h` | Initialises Boost.Log, provides JSON and plain‑text formatters, and convenience logging functions for server events, requests, responses, errors, and debug. |
-| `cmd_parser.h` | Defines the `Args` structure and `ParseCommandLine()` to process command‑line options and validate paths. |
-| `constants.h` | Global constants: game parameters, JSON field names, HTTP content types, API endpoint strings, error codes, and messages. |
-| `json_loader.cpp/h` | Loads the game configuration from a JSON file, parses maps, roads, buildings, offices, loot types, and loot generator settings. Includes diagnostic function `CheckGameLoad()`. |
-| `main_utils.h` | Provides environment variable reading (`GAME_DB_URL`), test database cleanup, worker thread launcher (`RunWorkers`), and a console pause utility. |
-| `sdk.h` | Minimal header to set `WIN32` SDK version (for Windows builds). |
-| `tagged.h` | Implements `Tagged<Value, Tag>` – a generic strong typedef with equality and hashing support. |
-| `ticker.h` | A `std::enable_shared_from_this` timer that runs on a `boost::asio::strand` and invokes a handler with the elapsed time delta. |
-| `utils.cpp/h` | Miscellaneous helpers: filesystem (sub‑path check), geometry (distance, position conversion), direction conversions, random numbers, URL decoding, MIME type detection, and HTTP token extraction. |
+| `road_engine.h` | Declares `RoadEngine` class: spatial indexing, road bounds, position validation, movement road selection, clamping. |
+| `road_engine.cpp` | Implements index building, road bounds calculation, geometric checks (point on road, at bounds), and road selection logic. |
+| `road_graph.h` | Declares `RoadGraph` class: graph node/edge representation, A* pathfinding, helper methods for neighbor lookup. |
+| `road_graph.cpp` | Constructs graph from roads (endpoints + intersections), builds adjacency lists, implements `FindPath()` using A* with temporary start/goal nodes. |
 
 ## Extra Data
 
-### Environment Variables
-- `GAME_DB_URL` – PostgreSQL connection string for the game database (read in `main_utils.h`).
+### Integration with Dog Movement
 
-### Integration with Main Server
-The common module is used by the main game server executable. Typical usage:
+`Dog::Move()` uses `RoadEngine` to ensure the dog never leaves the road network:
 
 ```cpp
-#include "common/cmd_parser.h"
-#include "common/json_loader.h"
-#include "common/boost_logger.h"
-
-auto args = parse::ParseCommandLine(argc, argv);
-boost_logger::SendBoostLogToStream();
-auto game = json_loader::LoadGame(args->config_file);
-```
-
-### Logging Example
-JSON log output (console or file):
-
-```json
-{
-  "timestamp": "2025-01-15T12:34:56.789",
-  "data": { "port": 8080, "address": "0.0.0.0" },
-  "message": "Server has started"
+// Inside Dog::Move()
+road_to_move_ = map_->GetRoadEngine().ChooseRoadForMovement(pos_, target, dir_);
+if (!road_to_move_) {
+    pos_ = map_->GetRoadEngine().ClampPositionToRoadBounds(target, current_road);
+    speed_ = Speed2D::Zero();
+} else {
+    pos_ = target;
 }
 ```
 
-### Ticker Usage
+### Bot Pathfinding with RoadGraph
+
+Bots (AI players) use `RoadGraph` to plan routes to loot or offices:
 
 ```cpp
-auto strand = net::make_strand(ioc);
-auto ticker = std::make_shared<tick::Ticker>(strand, 50ms, [](auto delta) {
-    game.Update(delta);
-});
-ticker->Start();
+const auto& road_engine = map->GetRoadEngine();
+RoadGraph graph(map->GetRoads(), road_engine);
+auto path = graph.FindPath(current_pos, target_pos);
+if (!path.empty()) {
+    // follow path
+}
 ```
+
+### Road Bounds and Tolerance
+
+Roads have a logical half‑width (`ROAD_WIDTH_HALF` from `constants.h`). A point is considered “on” a road if its distance to the road’s center line is ≤ this half‑width. Bounding boxes are expanded by the same amount. Tolerance for floating‑point comparisons uses `DOUBLE_ABS_TOLERANCE`.
+
+### Graph Node Placement Example
+
+Given a horizontal road from (0,0) to (10,0) and a vertical road from (5,-5) to (5,5), `RoadGraph` creates nodes at:
+- Endpoints: (0,0), (10,0), (5,-5), (5,5)
+- Intersection: (5,0)
+Edges connect (0,0)–(5,0)–(10,0) and (5,-5)–(5,0)–(5,5).
 
 ---
 
 *This module is part of a larger Game Server project – a multiplayer online game where players control dogs, collect loot, and compete on procedurally generated maps.*
-```
