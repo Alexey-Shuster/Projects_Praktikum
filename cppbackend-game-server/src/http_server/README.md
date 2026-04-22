@@ -1,93 +1,162 @@
-# Common Module for Game Server
+# HTTP Server and API Module
 
-The `/src/common/` directory contains shared infrastructure code used across the Game Server project: logging, configuration loading, JSON utilities, strong type definitions, geometry helpers, HTTP helpers, and a generic ticker for time‑driven updates.
+The `/src/http_server/` directory contains the complete HTTP server infrastructure for the Game Server project: asynchronous request handling, API routing with path parameters, JSON serialization, static file serving, request logging, and integration with the game application layer.
 
 ## Code Description
 
-- **Logging** (`boost_logger.cpp/h`) – Wraps Boost.Log to produce structured JSON logs with custom attributes (timestamp, severity, additional data). Supports console and file sinks with rotation.
-- **Command‑line parsing** (`cmd_parser.h`) – Uses Boost.Program_Options to parse arguments like `--tick-period`, `--config-file`, `--www-root`, and various boolean flags.
-- **Constants** (`constants.h`) – Centralises numeric constants, JSON field names, HTTP content types, API paths, error codes, and game logic parameters.
-- **JSON game loader** (`json_loader.cpp/h`) – Loads the game configuration from a JSON file (maps, roads, buildings, offices, loot types, loot generator settings) and constructs the domain model (`model::Game`).
-- **Tagged types** (`tagged.h`) – Implements a type‑safe wrapper (`Tagged<Value, Tag>`) to avoid accidental mixing of semantically different values (e.g. `Office::Id` vs `Map::Id`).
-- **Utilities** (`utils.cpp/h`) – Provides filesystem helpers (sub‑path verification), geometry calculations, direction↔string conversions, random number generation, URL decoding, MIME type detection, and HTTP header parsing.
-- **Ticker** (`ticker.h`) – A timer that runs on a `boost::asio::strand` and invokes a user callback at fixed intervals, used for the game loop and state updates.
-- **Main utilities** (`main_utils.h`) – Contains environment configuration (database URL), test database cleanup, worker thread management, and a portable pause function.
+- **HTTP Server Core** (`http_server.cpp/h`) – Low‑level asynchronous HTTP server built on Boost.Beast. Provides `Listener` (accepts connections) and `Session` (handles one client connection). Uses `boost::asio::strand` for thread‑safe per‑connection processing. Implements read/write timeouts and graceful shutdown.
+
+- **Request Dispatcher** (`request_handler.cpp/h`) – Main entry point for all HTTP requests. Determines whether a request targets the API (`/api/v1/...`) or static files. For API requests, dispatches through a `boost::asio::strand` to serialise access to the game state. For static files, serves content from the configured `www_root` with path traversal protection and MIME type detection. Manages the game ticker for automatic state updates.
+
+- **Logging Decorator** (`logging_request_handler.h`) – Wraps any request handler to log incoming requests and outgoing responses. Logs client IP, method, target, response status code, response time (ms), and content type. Uses the project’s `boost_logger`.
+
+- **API Router** (`api_router.cpp/h`) – Tree‑based HTTP router supporting static routes and dynamic path parameters (e.g., `/api/v1/maps/:id`). Provides method validation, authentication requirement checks, Content‑Type header validation and automatic extraction of URL parameters into `RequestContext`. Handles the special `/api/v1/game/tick` endpoint blocking when auto‑tick is enabled.
+
+- **API Handlers** (`api_handler.cpp/h`) – Implements all game API endpoints:
+  - `GET /api/v1/maps` – list all maps (brief)
+  - `GET /api/v1/maps/:id` – full map details including roads, buildings, offices, loot types
+  - `POST /api/v1/game/join` – join a game (creates player, returns token)
+  - `GET /api/v1/game/players` – list players in the current session
+  - `GET /api/v1/game/state` – full game state (players, positions, loot)
+  - `POST /api/v1/game/action` – set player movement direction
+  - `POST /api/v1/game/tick` – manual game tick (only when auto‑tick is disabled)
+  - `GET /api/v1/game/records` – leaderboard with pagination (offset/limit)
+
+  Includes a reusable `ParseJsonRequest` helper with optional validator.
+
+- **HTTP Response Builder** (`http_response.cpp/h`) – Fluent builder for constructing `StringResponse` objects. Supports JSON responses, error responses with code/message, custom content types, cache control and `Allow` headers. Provides convenience functions for common error codes (BadRequest, MethodNotAllowed, InternalServerError).
+
+- **API Serialization** (`serialize_api.cpp/h`) – Converts game domain objects to Boost.JSON values. Serialises maps, roads, buildings, offices, loot types, player state (position, speed, direction, bag, score) and lost loot objects. Uses `tag_invoke` overload for `app_geom::Position2D` to round coordinates to two decimal places.
 
 ## Patterns Used
 
-- **RAII** – Automatic resource management for file handles, log sinks, and timers (`json_loader`, `boost_logger`).
-- **Factory** – `json_loader::LoadGame()` constructs the complete `model::Game` from a JSON configuration.
-- **Strategy** – `MyFormatter` / `MyFormatterJSON` provide swappable log output formats (plain text vs JSON).
-- **Tagged Type (Strong Typedef)** – `tagged.h` provides type‑safe wrappers (e.g. `Office::Id`, `Map::Id`) preventing implicit conversions.
-- **Strand‑based Asynchronous Execution** – `ticker.h` uses `boost::asio::strand` for thread‑safe callback dispatch.
-- **Builder** – Step‑by‑step construction of complex game objects from JSON (`LoadMaps()`, `LoadRoads()`, etc.).
-- **Singleton (implicit)** – `boost::log::core` global logging core accessed via static methods.
+- **Decorator** – `LoggingRequestHandler` wraps any request handler, adding logging without modifying the original handler.
+- **Builder** – `response::Builder` provides a fluent interface for constructing HTTP responses with various attributes.
+- **Strategy** – The router’s `EndpointConfig` allows different handlers and validation strategies per route.
+- **Chain of Responsibility** – `RequestHandler` decides between API routing and static file serving; API routing further delegates to the trie‑based `ApiRouter`.
+- **Template Method** – `SessionBase` defines the async read/write skeleton; derived `Session<RequestHandler>` implements the pure virtual `HandleRequest`.
+- **Factory** – `http_server::ServeHttp` creates and runs a `Listener` with the given handler.
+- **RAII** – `beast::tcp_stream` manages socket lifetime and timeouts; `std::shared_ptr` ensures safe asynchronous callback lifetimes.
+- **Tagged Type / ADL** – `tag_invoke` overload for `Position2D` customises JSON serialisation without modifying the original class.
 
 ## Libraries Used
 
-- Boost.Log – Structured logging with severity levels, attributes, and sinks.
-- Boost.Program_Options – Command‑line argument parsing.
-- Boost.Asio – I/O context, strands, timers (used by `Ticker`).
-- Boost.Beast – HTTP components (referenced in `utils.h` for request handling).
-- Boost.JSON – JSON parsing and serialisation.
-- Boost.Date_Time – Timestamp formatting for logs.
-- C++17 / C++20 STL – Filesystem, chrono, random, unordered containers, smart pointers.
-- PostgreSQL (libpqxx) – Indirectly used via environment helpers in `main_utils.h`.
+- **Boost.Beast** – HTTP protocol, async read/write, `tcp_stream`, `flat_buffer`, HTTP fields.
+- **Boost.Asio** – `io_context`, `strand`, `ip::tcp`, timers, `dispatch` / `post`.
+- **Boost.JSON** – Parsing and serialisation of JSON for API requests and responses.
+- **C++17 / C++20 STL** – `std::filesystem`, `std::unordered_map`, `std::optional`, `std::function`, `std::chrono`, `std::ranges`.
+- **Project‑internal** – `boost_logger` (logging), `constants.h` (API paths, error codes, content types), `utils.h` (URL decoding, MIME types, path traversal check, direction conversion), `ticker.h` (periodic game update), `application.h` (game logic), `model::Game`, `app::Players`, `serialize_game_save` (indirectly).
 
 ## Files Summary
 
 | File | Purpose |
 |------|---------|
-| `boost_logger.cpp/h` | Initialises Boost.Log, provides JSON and plain‑text formatters, and convenience logging functions for server events, requests, responses, errors, and debug. |
-| `cmd_parser.h` | Defines the `Args` structure and `ParseCommandLine()` to process command‑line options and validate paths. |
-| `constants.h` | Global constants: game parameters, JSON field names, HTTP content types, API endpoint strings, error codes, and messages. |
-| `json_loader.cpp/h` | Loads the game configuration from a JSON file, parses maps, roads, buildings, offices, loot types, and loot generator settings. Includes diagnostic function `CheckGameLoad()`. |
-| `main_utils.h` | Provides environment variable reading (`GAME_DB_URL`), test database cleanup, worker thread launcher (`RunWorkers`), and a console pause utility. |
-| `sdk.h` | Minimal header to set `WIN32` SDK version (for Windows builds). |
-| `tagged.h` | Implements `Tagged<Value, Tag>` – a generic strong typedef with equality and hashing support. |
-| `ticker.h` | A `std::enable_shared_from_this` timer that runs on a `boost::asio::strand` and invokes a handler with the elapsed time delta. |
-| `utils.cpp/h` | Miscellaneous helpers: filesystem (sub‑path check), geometry (distance, position conversion), direction conversions, random numbers, URL decoding, MIME type detection, and HTTP token extraction. |
+| `api_handler.cpp/h` | Implements all game API endpoints (maps, join, state, action, tick, records). Contains JSON parsing helpers and delegates to `serialize_api`. |
+| `api_router.cpp/h` | Trie‑based router with path parameters, method validation, auth, content‑type checks. Manages `RequestContext`. |
+| `http_response.cpp/h` | Fluent builder for HTTP responses. Supports JSON, errors, custom headers, and convenience functions. |
+| `http_server.cpp/h` | Low‑level async HTTP server: `Listener` (accepts connections), `Session` (per‑connection read/write loop), `ServeHttp` entry point. |
+| `logging_request_handler.h` | Decorator that logs request details (IP, method, target) and response (status, time, content type). |
+| `request_handler.cpp/h` | Main dispatcher: routes API requests via strand, serves static files with security checks, manages game ticker. |
+| `serialize_api.cpp/h` | Converts game model objects (maps, loot, dogs, game state) to Boost.JSON. Includes custom `tag_invoke` for `Position2D`. |
 
 ## Extra Data
 
-### Environment Variables
-- `GAME_DB_URL` – PostgreSQL connection string for the game database (read in `main_utils.h`).
+### API Endpoints Summary
+
+| Method | Path                     | Auth | Description                     |
+|--------|--------------------------|------|---------------------------------|
+| GET    | `/api/v1/maps`           | No   | List all maps (id, name)        |
+| GET    | `/api/v1/maps/:id`       | No   | Full map details                |
+| POST   | `/api/v1/game/join`      | No   | Join game, returns token        |
+| GET    | `/api/v1/game/players`   | Yes  | List players in current session |
+| GET    | `/api/v1/game/state`     | Yes  | Full game state (positions, loot)|
+| POST   | `/api/v1/game/action`    | Yes  | Set movement direction          |
+| POST   | `/api/v1/game/tick`      | No   | Manual game tick (if auto disabled) |
+| GET    | `/api/v1/game/records`   | No   | Leaderboard (offset, maxItems)  |
+
+### Authentication
+
+The API uses Bearer tokens. Clients receive a token upon joining a game (`POST /api/v1/game/join`). For endpoints that require authentication (`requires_auth = true`), the token must be provided in the `Authorization` header:
+```
+Authorization: Bearer <token>
+```
+
+### Static File Serving
+
+- Root directory is set via `--www-root` command‑line argument.
+- Serves files with correct MIME types (based on extension).
+- Supports `index.html` for directory requests.
+- Path traversal attacks are prevented by verifying that the canonicalised path remains inside `www_root`.
 
 ### Integration with Main Server
-The common module is used by the main game server executable. Typical usage:
 
 ```cpp
-#include "common/cmd_parser.h"
-#include "common/json_loader.h"
-#include "common/boost_logger.h"
+#include "http_server.h"
+#include "request_handler.h"
+#include "logging_request_handler.h"
+#include "game_app/application.h"
 
-auto args = parse::ParseCommandLine(argc, argv);
-boost_logger::SendBoostLogToStream();
-auto game = json_loader::LoadGame(args->config_file);
+// Create application and io_context
+app::Application app(argc, argv);
+net::io_context ioc;
+
+// Create request handler (with logging decorator)
+using Handler = server_logging::LoggingRequestHandler<http_handler::RequestHandler>;
+Handler handler{http_handler::RequestHandler{app, ioc}};
+
+// Start HTTP server on endpoint
+http_server::ServeHttp(ioc, {net::ip::make_address("0.0.0.0"), 8080}, handler);
+
+// Run io_context
+ioc.run();
 ```
 
 ### Logging Example
-JSON log output (console or file):
+
+Request and response logs produced by `LoggingRequestHandler` (using the project’s JSON logger):
 
 ```json
 {
   "timestamp": "2025-01-15T12:34:56.789",
-  "data": { "port": 8080, "address": "0.0.0.0" },
-  "message": "Server has started"
+  "data": {
+    "ip": "192.168.1.100",
+    "target": "/api/v1/game/state",
+    "method": "GET"
+  },
+  "message": "Request received"
+}
+{
+  "timestamp": "2025-01-15T12:34:56.795",
+  "data": {
+    "response_time_ms": 6,
+    "status": 200,
+    "content_type": "application/json"
+  },
+  "message": "Response sent"
 }
 ```
 
-### Ticker Usage
+### Router Example
+
+Adding a custom route to `ApiHandler`:
 
 ```cpp
-auto strand = net::make_strand(ioc);
-auto ticker = std::make_shared<tick::Ticker>(strand, 50ms, [](auto delta) {
-    game.Update(delta);
+router_->AddRoute("/api/v1/admin/reset", {
+    .allowed_methods = {http::verb::post},
+    .requires_auth = true,
+    .handler = [this](const RequestContext& ctx, std::string_view) {
+        // reset logic
+        return response::Builder::MakeJson(ctx.req, json::object{});
+    }
 });
-ticker->Start();
 ```
+
+### Environment / Configuration
+
+- The server’s listening address and port are configured outside this module (in `main.cpp`).
+- Static files root, tick period, and other options come from parsed command line.
+- API base path is defined in `constants.h` as `api_paths::API_PREFIX = "/api/v1"`.
 
 ---
 
-*This module is part of a larger Game Server project – a multiplayer online game where players control dogs, collect loot, and compete on procedurally generated maps.*
-```
+*This module is part of a larger Game Server project – a multiplayer online game where players control dogs, collect loot, and compete on procedurally generated maps. The HTTP server provides the Web API for clients to interact with the game.*
