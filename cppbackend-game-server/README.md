@@ -251,4 +251,13 @@ When using `PooledDatabase`, the server automatically runs `db::RunMigrations` o
 
 ---
 
-*This server is the backend for a multiplayer dog‑collecting game. It is designed for high concurrency (ASIO thread pool), extensibility (plugin‑like libraries), and operational robustness (logging, state persistence, graceful shutdown).*
+## Licence
+This project is licensed under the MIT License.
+You are free to use, modify and distribute it as long as you include the original copyright notice.
+```
+===============================================================================
+ Game Server v2.1
+ Copyright (c) 2026 Alexey Shuster
+ Licensed under the MIT License
+===============================================================================
+```
