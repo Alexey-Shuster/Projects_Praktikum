@@ -3,6 +3,9 @@
 * **[advanced-vector](advanced-vector)**
   A header-only custom C++ vector container. Employs `RawMemory` with manual construction/destruction and strong exception safety. Supports `Emplace`/`EmplaceBack` with Copy & Move semantics based on type traits. Designed for benchmarking against `std::vector`.
 
+* **[cppbackend-game-server](cppbackend-game-server)**
+  The Game Server is a multiplayer online game backend where players control dogs, collect loot and compete on procedurally generated maps. Written in modern C++20, the server is designed for high concurrency (ASIO thread pool), extensibility (plugin‑like libraries) and operational robustness (logging, state persistence, graceful shutdown).
+
 * **[image-converter](image-converter)**
   A `C++17` tool for converting `BMP`, `JPEG`, and `PPM` images. Requires `LibJPEG`.
 
