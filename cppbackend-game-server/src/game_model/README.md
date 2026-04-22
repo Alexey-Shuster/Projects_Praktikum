@@ -1,93 +1,94 @@
-# Common Module for Game Server
+# Game Model Module
 
-The `/src/common/` directory contains shared infrastructure code used across the Game Server project: logging, configuration loading, JSON utilities, strong type definitions, geometry helpers, HTTP helpers, and a generic ticker for time‑driven updates.
+The `/src/game_model/` directory contains the core game domain model: dogs, maps, roads, buildings, offices, loot, game sessions, collision detection, and the main game loop logic. This module defines how players (dogs) move on maps, collect loot, interact with offices and how game state evolves over time.
 
 ## Code Description
 
-- **Logging** (`boost_logger.cpp/h`) – Wraps Boost.Log to produce structured JSON logs with custom attributes (timestamp, severity, additional data). Supports console and file sinks with rotation.
-- **Command‑line parsing** (`cmd_parser.h`) – Uses Boost.Program_Options to parse arguments like `--tick-period`, `--config-file`, `--www-root`, and various boolean flags.
-- **Constants** (`constants.h`) – Centralises numeric constants, JSON field names, HTTP content types, API paths, error codes, and game logic parameters.
-- **JSON game loader** (`json_loader.cpp/h`) – Loads the game configuration from a JSON file (maps, roads, buildings, offices, loot types, loot generator settings) and constructs the domain model (`model::Game`).
-- **Tagged types** (`tagged.h`) – Implements a type‑safe wrapper (`Tagged<Value, Tag>`) to avoid accidental mixing of semantically different values (e.g. `Office::Id` vs `Map::Id`).
-- **Utilities** (`utils.cpp/h`) – Provides filesystem helpers (sub‑path verification), geometry calculations, direction↔string conversions, random number generation, URL decoding, MIME type detection, and HTTP header parsing.
-- **Ticker** (`ticker.h`) – A timer that runs on a `boost::asio::strand` and invokes a user callback at fixed intervals, used for the game loop and state updates.
-- **Main utilities** (`main_utils.h`) – Contains environment configuration (database URL), test database cleanup, worker thread management, and a portable pause function.
+- **Dog** (`dog.cpp/h`) – Represents a player’s dog. Stores position, speed, direction, bag of collected loot, score, idle time. Handles movement with road‑constrained physics: dogs move along roads, cannot leave them; speed is derived from map default speed and direction.
+- **Game extra data** (`game_extra_data.h`) – Holds configuration not part of the basic map: per‑map dog speeds, bag capacities, loot generator settings (period, probability), loot type definitions (name, value, color, scale, etc.), and dog retirement timeout.
+- **Game map** (`game_map.h`) – Defines `Map`, `Building`, `Office`, and `Road` (roads are horizontal/vertical segments). Maps contain roads, buildings, offices. Provides `GetRandomPoint()` for loot generation and office placement. Uses `RoadEngine` for road lookup and movement constraints.
+- **Game model** (`game_model.cpp/h`) – The `Game` class aggregates all maps and game sessions. It creates or finds game sessions for a given map, updates all sessions, and manages session IDs. Also holds the loot generator and extra data.
+- **Game session** (`game_session.cpp/h`) – A running instance of a map with active dogs (players) and bots. Contains the `Dog` container, `LootStorage`, and a `BotManager`. Updates game state each tick: moves dogs/bots, generates new loot, processes collisions (loot pickup, office delivery). Also handles dog retirement due to idle timeout.
+- **Loot storage** (`loot_storage.cpp/h`) – Manages loot objects on a map. Generates new loot at random positions on roads, using configurable loot types. Stores loot objects in a map keyed by ID. Supports removal, lookup, and clearing.
+- **Road** (`road.h`) – Simple horizontal or vertical road segment defined by start and end points. Used by `RoadEngine` for movement constraints.
 
 ## Patterns Used
 
-- **RAII** – Automatic resource management for file handles, log sinks, and timers (`json_loader`, `boost_logger`).
-- **Factory** – `json_loader::LoadGame()` constructs the complete `model::Game` from a JSON configuration.
-- **Strategy** – `MyFormatter` / `MyFormatterJSON` provide swappable log output formats (plain text vs JSON).
-- **Tagged Type (Strong Typedef)** – `tagged.h` provides type‑safe wrappers (e.g. `Office::Id`, `Map::Id`) preventing implicit conversions.
-- **Strand‑based Asynchronous Execution** – `ticker.h` uses `boost::asio::strand` for thread‑safe callback dispatch.
-- **Builder** – Step‑by‑step construction of complex game objects from JSON (`LoadMaps()`, `LoadRoads()`, etc.).
-- **Singleton (implicit)** – `boost::log::core` global logging core accessed via static methods.
+- **Domain Model** – Core business logic encapsulated in `Dog`, `Map`, `GameSession`, etc., with clear invariants (dogs stay on roads).
+- **Factory** – `Game::RequestGameSession()` creates new sessions on demand.
+- **Command** – `Dog::SetDirection()` converts direction to a speed vector; `Dog::Move()` applies movement over time.
+- **Observer / Signal** – `GameSession::DogDeletedSignal` (Boost.Signals2) notifies when a dog is retired.
+- **Strategy** – `LootGenerator` is injected into `GameSession`; different generation strategies can be used.
+- **Snapshot Isolation** – `GameSession` updates state based on a time delta; all changes are applied atomically per tick.
+- **RAII** – No explicit resource management shown, but `LootStorage` and `BotManager` manage internal containers automatically.
+- **Tagged Type** – `Map::Id`, `GameSession::Id`, `Office::Id` use `util::Tagged` for strong typing.
 
 ## Libraries Used
 
-- Boost.Log – Structured logging with severity levels, attributes, and sinks.
-- Boost.Program_Options – Command‑line argument parsing.
-- Boost.Asio – I/O context, strands, timers (used by `Ticker`).
-- Boost.Beast – HTTP components (referenced in `utils.h` for request handling).
-- Boost.JSON – JSON parsing and serialisation.
-- Boost.Date_Time – Timestamp formatting for logs.
-- C++17 / C++20 STL – Filesystem, chrono, random, unordered containers, smart pointers.
-- PostgreSQL (libpqxx) – Indirectly used via environment helpers in `main_utils.h`.
+- **Boost.Signals2** – For the dog deletion signal (`game_session.h`).
+- **Boost.Asio** – `io_context` and `strand` for thread‑safe session updates (`game_session.h`).
+- **C++17 / C++20 STL** – `std::map`, `std::vector`, `std::unordered_map`, `std::random_device`, `std::mt19937`, `<chrono>`, `<ranges>`, `<algorithm>`.
+- **Project‑internal** – `common/utils.h`, `common/tagged.h`, `common/game_utils/collision_detector.h`, `common/game_utils/loot_generator.h`, `game_bots/bot_manager.h`.
 
 ## Files Summary
 
 | File | Purpose |
 |------|---------|
-| `boost_logger.cpp/h` | Initialises Boost.Log, provides JSON and plain‑text formatters, and convenience logging functions for server events, requests, responses, errors, and debug. |
-| `cmd_parser.h` | Defines the `Args` structure and `ParseCommandLine()` to process command‑line options and validate paths. |
-| `constants.h` | Global constants: game parameters, JSON field names, HTTP content types, API endpoint strings, error codes, and messages. |
-| `json_loader.cpp/h` | Loads the game configuration from a JSON file, parses maps, roads, buildings, offices, loot types, and loot generator settings. Includes diagnostic function `CheckGameLoad()`. |
-| `main_utils.h` | Provides environment variable reading (`GAME_DB_URL`), test database cleanup, worker thread launcher (`RunWorkers`), and a console pause utility. |
-| `sdk.h` | Minimal header to set `WIN32` SDK version (for Windows builds). |
-| `tagged.h` | Implements `Tagged<Value, Tag>` – a generic strong typedef with equality and hashing support. |
-| `ticker.h` | A `std::enable_shared_from_this` timer that runs on a `boost::asio::strand` and invokes a handler with the elapsed time delta. |
-| `utils.cpp/h` | Miscellaneous helpers: filesystem (sub‑path check), geometry (distance, position conversion), direction conversions, random numbers, URL decoding, MIME type detection, and HTTP token extraction. |
+| `dog.cpp/h` | Dog entity: position, speed, direction, bag, score, idle time, movement logic constrained by roads. |
+| `game_extra_data.h` | Configuration container: per‑map speeds/bag capacities, loot types, loot generator parameters, dog retirement timeout. |
+| `game_map.h` | Map definition with roads, buildings, offices. Provides road engine, random point generation, default speed/capacity. |
+| `game_model.cpp/h` | Game aggregate: maps, sessions, session creation, session lookup, global update. |
+| `game_session.cpp/h` | Game session (a running map instance): dogs, bots, loot storage, collision processing, dog retirement, state update per tick. |
+| `loot_storage.cpp/h` | Loot object container: generation, removal, lookup. Uses random positions on roads. |
+| `road.h` | Simple horizontal/vertical road segment. |
 
 ## Extra Data
 
 ### Environment Variables
-- `GAME_DB_URL` – PostgreSQL connection string for the game database (read in `main_utils.h`).
+None directly. Configuration is loaded from JSON (via `json_loader` in the common module) into `GameExtraData` and passed to the game model.
 
 ### Integration with Main Server
-The common module is used by the main game server executable. Typical usage:
+Typical usage in the game server:
 
 ```cpp
-#include "common/cmd_parser.h"
+#include "model/game_model.h"
 #include "common/json_loader.h"
-#include "common/boost_logger.h"
 
-auto args = parse::ParseCommandLine(argc, argv);
-boost_logger::SendBoostLogToStream();
-auto game = json_loader::LoadGame(args->config_file);
+auto extra_data = std::make_shared<extra_data::GameExtraData>();
+auto game = std::make_shared<model::Game>(extra_data);
+json_loader::LoadGame(config_file, *game); // populates maps and extra data
+
+// Later, on player join:
+auto [session_id, created] = game->RequestGameSession(map_id, ioc);
+auto session = game->FindGameSession(session_id);
+auto dog = session->RequestDog(player_id, player_name);
 ```
 
-### Logging Example
-JSON log output (console or file):
-
-```json
-{
-  "timestamp": "2025-01-15T12:34:56.789",
-  "data": { "port": 8080, "address": "0.0.0.0" },
-  "message": "Server has started"
-}
-```
-
-### Ticker Usage
+### Game Loop Integration
+The ticker from the common module calls `Game::UpdateAllGameSessions()`:
 
 ```cpp
-auto strand = net::make_strand(ioc);
-auto ticker = std::make_shared<tick::Ticker>(strand, 50ms, [](auto delta) {
-    game.Update(delta);
+auto ticker = std::make_shared<tick::Ticker>(strand, tick_period, [&game](auto delta) {
+    game->UpdateAllGameSessions(delta);
 });
 ticker->Start();
 ```
 
+### Collision Processing
+Each game session processes collisions in the following order:
+1. Move all dogs and bots.
+2. Generate new loot (if needed).
+3. Detect collisions between moving dogs/bots and loot items / offices.
+   - Loot pickup: if dog’s bag has capacity, loot is marked collected and added to bag.
+   - Office delivery: all loot in bag is converted to score, loot objects removed from world.
+4. Retire dogs that have been idle longer than the configured timeout (if retirement enabled).
+
+### Dog Retirement
+When a dog stands still (speed == 0) for more than `dog_retirement_time_` seconds, it is removed from the session. Its bag’s loot items are dropped back onto the map at the dog’s last position (marked not collected). A `DogDeletedSignal` is emitted with the dog’s ID and final score.
+
+### Loot Generation
+Loot is generated at random positions on roads. Each loot object has a type from `GameExtraData::GetLootTypes()`, which defines its score value, visual appearance, etc. The number of loot objects generated per tick is determined by `LootGenerator` based on time passed, current loot count, and number of dogs/bots.
+
 ---
 
 *This module is part of a larger Game Server project – a multiplayer online game where players control dogs, collect loot, and compete on procedurally generated maps.*
-```
