@@ -1,93 +1,109 @@
-# Common Module for Game Server
+# Database Persistence Layer for Game Server
 
-The `/src/common/` directory contains shared infrastructure code used across the Game Server project: logging, configuration loading, JSON utilities, strong type definitions, geometry helpers, HTTP helpers, and a generic ticker for time‑driven updates.
+The `/src/game_db/` directory contains the database abstraction and persistence layer for the Game Server project. It provides connection pooling, unit of work (transaction) management, repository interfaces, and both in‑memory (for testing) and PostgreSQL‑backed implementations.
 
 ## Code Description
 
-- **Logging** (`boost_logger.cpp/h`) – Wraps Boost.Log to produce structured JSON logs with custom attributes (timestamp, severity, additional data). Supports console and file sinks with rotation.
-- **Command‑line parsing** (`cmd_parser.h`) – Uses Boost.Program_Options to parse arguments like `--tick-period`, `--config-file`, `--www-root`, and various boolean flags.
-- **Constants** (`constants.h`) – Centralises numeric constants, JSON field names, HTTP content types, API paths, error codes, and game logic parameters.
-- **JSON game loader** (`json_loader.cpp/h`) – Loads the game configuration from a JSON file (maps, roads, buildings, offices, loot types, loot generator settings) and constructs the domain model (`model::Game`).
-- **Tagged types** (`tagged.h`) – Implements a type‑safe wrapper (`Tagged<Value, Tag>`) to avoid accidental mixing of semantically different values (e.g. `Office::Id` vs `Map::Id`).
-- **Utilities** (`utils.cpp/h`) – Provides filesystem helpers (sub‑path verification), geometry calculations, direction↔string conversions, random number generation, URL decoding, MIME type detection, and HTTP header parsing.
-- **Ticker** (`ticker.h`) – A timer that runs on a `boost::asio::strand` and invokes a user callback at fixed intervals, used for the game loop and state updates.
-- **Main utilities** (`main_utils.h`) – Contains environment configuration (database URL), test database cleanup, worker thread management, and a portable pause function.
+- **Connection pool** (`connection_pool.h`) – Thread‑safe pool of `pqxx::connection` objects. Clients borrow connections via `GetConnection()`, which returns a RAII wrapper that automatically returns the connection when destroyed. Supports blocking wait with timeout.
+- **Database interface** (`database_interface.h`) – Abstract factory for creating `UnitOfWork` objects. Decouples the rest of the system from concrete database implementations.
+- **Migrations** (`db_migrations.h`) – Idempotent schema setup: creates `player_scores` table and required indexes. Uses a connection from the pool.
+- **Local (in‑memory) database** (`local_database.h`) – Pure in‑memory implementation with snapshot isolation. Each `UnitOfWork` gets a copy of the current data; commit atomically replaces the global snapshot. Includes a `PlayerScoreRepositoryLocal` that sorts in memory.
+- **Mock database** (`mock_database.h`) – Dummy implementations for unit testing. All operations are no‑ops and return empty results.
+- **Player domain** (`player_db.h`) – Defines `PlayerId` (a tagged UUID), `PlayerScore` struct, and `PlayerScoreRepository` abstract interface.
+- **Pooled database** (`pooled_database.h`) – Concrete `DatabaseInterface` that creates `PooledUnitOfWork` objects. Each unit of work borrows a connection from the pool, starts a `pqxx::work` transaction, and returns the connection on destruction.
+- **Repository implementations** (`repository_impls.h`) – PostgreSQL‑backed `PlayerScoreRepositoryRemote` using `pqxx::work::exec_params`. Handles parameterised queries and result set mapping.
+- **Tagged UUID** (`tagged_uuid.h`) – Strong typedef for UUIDs based on `util::Tagged` and Boost.UUID. Provides `New()`, `ToString()`, `FromString()` and defaults to nil UUID.
+- **Unit of work** (`unit_of_work.h`) – Abstract `UnitOfWork` interface with `PlayerScores()` accessor and `Commit()` method. Also provides `UnitOfWorkRemote` (a standalone transaction wrapper, kept for legacy/compatibility).
+- **Dummy source** (`dummy.cpp`) – Empty compilation unit to force static library generation when no other source files are present.
 
 ## Patterns Used
 
-- **RAII** – Automatic resource management for file handles, log sinks, and timers (`json_loader`, `boost_logger`).
-- **Factory** – `json_loader::LoadGame()` constructs the complete `model::Game` from a JSON configuration.
-- **Strategy** – `MyFormatter` / `MyFormatterJSON` provide swappable log output formats (plain text vs JSON).
-- **Tagged Type (Strong Typedef)** – `tagged.h` provides type‑safe wrappers (e.g. `Office::Id`, `Map::Id`) preventing implicit conversions.
-- **Strand‑based Asynchronous Execution** – `ticker.h` uses `boost::asio::strand` for thread‑safe callback dispatch.
-- **Builder** – Step‑by‑step construction of complex game objects from JSON (`LoadMaps()`, `LoadRoads()`, etc.).
-- **Singleton (implicit)** – `boost::log::core` global logging core accessed via static methods.
+- **Connection Pool** – Reuses a fixed number of database connections to reduce overhead (`connection_pool.h`). The RAII wrapper (`ConnectionWrapper`) automatically returns the connection.
+- **Unit of Work** – Groups multiple repository operations into a single transaction (`UnitOfWork` interface; `PooledUnitOfWork`, `LocalUnitOfWork` implementations).
+- **Repository** – Abstracts data access for `PlayerScore` entities (`PlayerScoreRepository` interface; remote and local implementations).
+- **Abstract Factory** – `DatabaseInterface` provides a factory method `CreateUnitOfWork()`.
+- **Snapshot Isolation** – `LocalDatabase` copies the entire data set for each unit of work, commits atomically via copy‑on‑write (shared pointer to immutable map).
+- **Tagged Type (Strong Typedef)** – `TaggedUUID<Tag>` prevents accidental mixing of different identifier types.
+- **RAII** – `ConnectionWrapper` returns connection to pool on destruction; `PooledUnitOfWork` rolls back transaction if `Commit()` is not called; mutex locks are automatically released.
+- **Strategy** – Swappable database backends (real PostgreSQL, in‑memory, mock) via the `DatabaseInterface` abstraction.
 
 ## Libraries Used
 
-- Boost.Log – Structured logging with severity levels, attributes, and sinks.
-- Boost.Program_Options – Command‑line argument parsing.
-- Boost.Asio – I/O context, strands, timers (used by `Ticker`).
-- Boost.Beast – HTTP components (referenced in `utils.h` for request handling).
-- Boost.JSON – JSON parsing and serialisation.
-- Boost.Date_Time – Timestamp formatting for logs.
-- C++17 / C++20 STL – Filesystem, chrono, random, unordered containers, smart pointers.
-- PostgreSQL (libpqxx) – Indirectly used via environment helpers in `main_utils.h`.
+- **libpqxx** – PostgreSQL C++ client library. Used for connections, transactions, and parameterised queries.
+- **Boost.UUID** – UUID generation, string parsing, and formatting (`tagged_uuid.h`).
+- **Boost.Log** – Referenced in `db_migrations.h` for logging (migration success message commented out).
+- **C++17 / C++20 STL** – `std::mutex`, `std::condition_variable`, `std::map`, `std::shared_ptr`, `std::unique_ptr`, `std::vector`, `<algorithm>`.
+- **PostgreSQL** – Underlying database server (via libpqxx).
 
 ## Files Summary
 
 | File | Purpose |
 |------|---------|
-| `boost_logger.cpp/h` | Initialises Boost.Log, provides JSON and plain‑text formatters, and convenience logging functions for server events, requests, responses, errors, and debug. |
-| `cmd_parser.h` | Defines the `Args` structure and `ParseCommandLine()` to process command‑line options and validate paths. |
-| `constants.h` | Global constants: game parameters, JSON field names, HTTP content types, API endpoint strings, error codes, and messages. |
-| `json_loader.cpp/h` | Loads the game configuration from a JSON file, parses maps, roads, buildings, offices, loot types, and loot generator settings. Includes diagnostic function `CheckGameLoad()`. |
-| `main_utils.h` | Provides environment variable reading (`GAME_DB_URL`), test database cleanup, worker thread launcher (`RunWorkers`), and a console pause utility. |
-| `sdk.h` | Minimal header to set `WIN32` SDK version (for Windows builds). |
-| `tagged.h` | Implements `Tagged<Value, Tag>` – a generic strong typedef with equality and hashing support. |
-| `ticker.h` | A `std::enable_shared_from_this` timer that runs on a `boost::asio::strand` and invokes a handler with the elapsed time delta. |
-| `utils.cpp/h` | Miscellaneous helpers: filesystem (sub‑path check), geometry (distance, position conversion), direction conversions, random numbers, URL decoding, MIME type detection, and HTTP token extraction. |
+| `connection_pool.h` | Thread‑safe pool of PostgreSQL connections with RAII wrapper and timeout‑aware blocking acquisition. |
+| `database_interface.h` | Pure abstract factory for creating `UnitOfWork` instances. |
+| `db_migrations.h` | Idempotent creation of `player_scores` table and index. |
+| `dummy.cpp` | Empty source file to ensure static library is built (workaround for build systems). |
+| `local_database.h` | In‑memory database with snapshot isolation, local repository (in‑memory sorting), and `LocalUnitOfWork`. |
+| `mock_database.h` | Mock implementations for unit testing (no persistent state, empty results). |
+| `player_db.h` | Domain types: `PlayerId` (tagged UUID), `PlayerScore` struct, and `PlayerScoreRepository` interface. |
+| `pooled_database.h` | Production database implementation using connection pool and libpqxx transactions. |
+| `repository_impls.h` | PostgreSQL‑backed `PlayerScoreRepositoryRemote` with `exec_params` and result set mapping. |
+| `tagged_uuid.h` | Strong typedef for UUIDs using `util::Tagged` and Boost.UUID utilities. |
+| `unit_of_work.h` | Abstract `UnitOfWork` interface and a standalone `UnitOfWorkRemote` class (legacy). |
 
 ## Extra Data
 
 ### Environment Variables
-- `GAME_DB_URL` – PostgreSQL connection string for the game database (read in `main_utils.h`).
+- `GAME_DB_URL` – PostgreSQL connection string (e.g., `postgresql://user:pass@localhost/game`). Used to initialise the connection pool (the actual pool creation code is not shown in these headers but is expected to read this variable).
 
-### Integration with Main Server
-The common module is used by the main game server executable. Typical usage:
-
-```cpp
-#include "common/cmd_parser.h"
-#include "common/json_loader.h"
-#include "common/boost_logger.h"
-
-auto args = parse::ParseCommandLine(argc, argv);
-boost_logger::SendBoostLogToStream();
-auto game = json_loader::LoadGame(args->config_file);
+### Database Schema
+The migrations create a single table:
+```sql
+CREATE TABLE IF NOT EXISTS player_scores (
+    id             UUID PRIMARY KEY,
+    player_name    TEXT NOT NULL,
+    score          INTEGER NOT NULL CHECK (score >= 0),
+    play_time_sec  DOUBLE PRECISION NOT NULL CHECK (play_time_sec >= 0)
+);
+CREATE INDEX idx_player_scores_sort ON player_scores (score DESC, play_time_sec ASC, player_name ASC);
 ```
 
-### Logging Example
-JSON log output (console or file):
-
-```json
-{
-  "timestamp": "2025-01-15T12:34:56.789",
-  "data": { "port": 8080, "address": "0.0.0.0" },
-  "message": "Server has started"
-}
-```
-
-### Ticker Usage
-
+### Usage Example (Production)
 ```cpp
-auto strand = net::make_strand(ioc);
-auto ticker = std::make_shared<tick::Ticker>(strand, 50ms, [](auto delta) {
-    game.Update(delta);
+#include "db/pooled_database.h"
+#include "db/connection_pool.h"
+#include "db/db_migrations.h"
+
+// Create pool (connection string from env)
+auto conn_string = std::getenv("GAME_DB_URL");
+auto pool = std::make_shared<db::ConnectionPool>(10, [&]() {
+    return std::make_shared<pqxx::connection>(conn_string);
 });
-ticker->Start();
+db::RunMigrations(pool);
+
+db::PooledDatabase db(pool);
+auto uow = db.CreateUnitOfWork();
+auto& repo = uow->PlayerScores();
+repo.Save({playerId, "Alice", 100, 12.5});
+uow->Commit();
 ```
+
+### Usage Example (In‑memory for tests)
+```cpp
+#include "db/local_database.h"
+
+db::LocalDatabase db;
+auto uow = db.CreateUnitOfWork();
+auto& repo = uow->PlayerScores();
+repo.Save({playerId, "Bob", 50, 8.0});
+uow->Commit(); // atomically makes changes visible
+```
+
+### Concurrency Notes
+- `ConnectionPool` uses a mutex and condition variable; `GetConnection()` may block up to 60 seconds.
+- `LocalDatabase` uses a mutex only during snapshot copy and commit; the snapshot itself is immutable and shared via `shared_ptr<const map>`, allowing lock‑free reads in the unit of work.
+- `PooledUnitOfWork` holds a transaction on a specific connection; it is **not** thread‑safe – each unit of work should be used from a single thread.
 
 ---
 
-*This module is part of a larger Game Server project – a multiplayer online game where players control dogs, collect loot, and compete on procedurally generated maps.*
-```
+*This persistence layer is part of a larger Game Server project – a multiplayer online game where players control dogs, collect loot, and compete on procedurally generated maps. The database stores high scores and player statistics.*
