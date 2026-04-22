@@ -91,21 +91,22 @@ Authorization: Bearer <token>
 ### Integration with Main Server
 
 ```cpp
-#include "http_server.h"
-#include "request_handler.h"
-#include "logging_request_handler.h"
+#include "common/cmd_parser.h"
+#include "common/json_loader.h"
+#include "common/boost_logger.h"
 #include "game_app/application.h"
+#include "http_server/serve_http.h"
+
+auto args = parse::ParseCommandLine(argc, argv).value();
+boost_logger::InitBoostLogSetFilter();
+auto game = json_loader::LoadGame(args.config_file);
+auto database = create_database(args); // mock/local/pooled
 
 // Create application and io_context
-app::Application app(argc, argv);
-net::io_context ioc;
-
-// Create request handler (with logging decorator)
-using Handler = server_logging::LoggingRequestHandler<http_handler::RequestHandler>;
-Handler handler{http_handler::RequestHandler{app, ioc}};
+app::Application app(game, args, ioc, *database);
 
 // Start HTTP server on endpoint
-http_server::ServeHttp(ioc, {net::ip::make_address("0.0.0.0"), 8080}, handler);
+http_server::ServeHttp(ioc, {address, port}, request_handler);
 
 // Run io_context
 ioc.run();
