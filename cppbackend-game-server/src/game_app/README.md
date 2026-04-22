@@ -1,93 +1,107 @@
-# Common Module for Game Server
+# Application Layer for Game Server
 
-The `/src/common/` directory contains shared infrastructure code used across the Game Server project: logging, configuration loading, JSON utilities, strong type definitions, geometry helpers, HTTP helpers, and a generic ticker for time‑driven updates.
+The `/src/game_app/` directory contains the application‑level logic that manages players, game state persistence, automatic saving, scoring, and the central game loop coordination for the Game Server.
 
 ## Code Description
 
-- **Logging** (`boost_logger.cpp/h`) – Wraps Boost.Log to produce structured JSON logs with custom attributes (timestamp, severity, additional data). Supports console and file sinks with rotation.
-- **Command‑line parsing** (`cmd_parser.h`) – Uses Boost.Program_Options to parse arguments like `--tick-period`, `--config-file`, `--www-root`, and various boolean flags.
-- **Constants** (`constants.h`) – Centralises numeric constants, JSON field names, HTTP content types, API paths, error codes, and game logic parameters.
-- **JSON game loader** (`json_loader.cpp/h`) – Loads the game configuration from a JSON file (maps, roads, buildings, offices, loot types, loot generator settings) and constructs the domain model (`model::Game`).
-- **Tagged types** (`tagged.h`) – Implements a type‑safe wrapper (`Tagged<Value, Tag>`) to avoid accidental mixing of semantically different values (e.g. `Office::Id` vs `Map::Id`).
-- **Utilities** (`utils.cpp/h`) – Provides filesystem helpers (sub‑path verification), geometry calculations, direction↔string conversions, random number generation, URL decoding, MIME type detection, and HTTP header parsing.
-- **Ticker** (`ticker.h`) – A timer that runs on a `boost::asio::strand` and invokes a user callback at fixed intervals, used for the game loop and state updates.
-- **Main utilities** (`main_utils.h`) – Contains environment configuration (database URL), test database cleanup, worker thread management, and a portable pause function.
+- **Application** (`application.h`) – Central orchestrator that ties together the game model, player management, auto‑save, score recording, and the game clock. Handles player addition, game ticking, state saving/loading, and database integration for player scores. Connects player retirement signals to score persistence.
+- **AutoSaveManager** (`auto_save_manager.h`) – Periodically saves the entire game state (game model + players) to a file. Uses a tick‑based accumulator and triggers a save when the configured period elapses. Disabled when period is zero or filename is empty.
+- **GameClock** (`game_clock.h`) – Simple monotonic clock that tracks the total elapsed game time in milliseconds. Used for player join timestamps and play duration calculations.
+- **GameStatePersistence** (`game_state_persistence.h`) – Handles saving and loading of the complete game state (game model + players) using Boost.Serialization with text archives. Performs thorough error handling, logging, and archive exception classification. Skips loading if the state file does not exist.
+- **PlayerScoreRecorder** (`player_score_recorder.h`) – Records a player’s final score and play time into the database when a player retires. Provides query methods to retrieve top scores. Uses the database abstraction layer (`DatabaseInterface`).
+- **Players** (`players.h` / `players.cpp`) – Manages all active players: registration, token generation, lookups by token/id/map/session. Handles restoration of players from saved state. Emits a `PlayerRetiredSignal` when a real player (not a bot) is removed due to dog idle timeout, allowing external components to record scores. Ensures exactly one connection per game session to the dog‑deleted signal.
+- **Player** (`players.h`) – Represents a connected human player. Stores player ID, name, associated game session, join time, and a pointer to the in‑game dog. Forwards movement commands to the dog.
+- **Token** (`token.h`) – Strong typedef (`Tagged<std::string>`) for player authentication tokens. Includes a generator that creates 32‑character hex tokens using two independent 64‑bit Mersenne Twister RNGs. Provides a validation function to check token format.
 
 ## Patterns Used
 
-- **RAII** – Automatic resource management for file handles, log sinks, and timers (`json_loader`, `boost_logger`).
-- **Factory** – `json_loader::LoadGame()` constructs the complete `model::Game` from a JSON configuration.
-- **Strategy** – `MyFormatter` / `MyFormatterJSON` provide swappable log output formats (plain text vs JSON).
-- **Tagged Type (Strong Typedef)** – `tagged.h` provides type‑safe wrappers (e.g. `Office::Id`, `Map::Id`) preventing implicit conversions.
-- **Strand‑based Asynchronous Execution** – `ticker.h` uses `boost::asio::strand` for thread‑safe callback dispatch.
-- **Builder** – Step‑by‑step construction of complex game objects from JSON (`LoadMaps()`, `LoadRoads()`, etc.).
-- **Singleton (implicit)** – `boost::log::core` global logging core accessed via static methods.
+- **RAII** – Automatic cleanup of file streams, archive objects, and signal connections (`GameStatePersistence`, `Players` session connections).
+- **Factory** – `Players::AddPlayer()` and `Players::AddRestoredPlayer()` create `Player` objects and their associated dogs.
+- **Observer (Signal/Slot)** – Boost.Signals2 is used extensively: `Application` provides a save signal for tests; `Players` emits a `PlayerRetiredSignal`; `GameSession`’s dog‑deleted signal is connected to player removal.
+- **Strategy (implicit)** – `AutoSaveManager` can be enabled/disabled by setting period/filename, swapping the persistence strategy.
+- **Builder** – `GameStatePersistence::Load()` restores the entire game state step by step using `GameRepr`.
+- **Tagged Type (Strong Typedef)** – `Token` is a `Tagged<std::string>` to avoid mixing with ordinary strings.
+- **Singleton (implicit)** – The global logging core (`boost_logger`) is used via free functions.
 
 ## Libraries Used
 
-- Boost.Log – Structured logging with severity levels, attributes, and sinks.
-- Boost.Program_Options – Command‑line argument parsing.
-- Boost.Asio – I/O context, strands, timers (used by `Ticker`).
-- Boost.Beast – HTTP components (referenced in `utils.h` for request handling).
-- Boost.JSON – JSON parsing and serialisation.
-- Boost.Date_Time – Timestamp formatting for logs.
-- C++17 / C++20 STL – Filesystem, chrono, random, unordered containers, smart pointers.
-- PostgreSQL (libpqxx) – Indirectly used via environment helpers in `main_utils.h`.
+- Boost.Signals2 – Signal/slot connections for player retirement, dog deletion, and test notifications.
+- Boost.Serialization – Text archive serialization for game state persistence (`GameStatePersistence`).
+- Boost.Asio – `io_context` used for timer strands and asynchronous operations (passed to `GameSession` and `Ticker`).
+- Boost.Log – Referenced for logging errors and info messages.
+- C++17 / C++20 STL – `<chrono>`, `<random>`, `<filesystem>`, `<unordered_map>`, `<map>`, `<memory>`, `<ranges>` (views).
+- PostgreSQL (libpqxx) – Indirectly used via `db::DatabaseInterface` and `PlayerScoreRecorder`.
 
 ## Files Summary
 
 | File | Purpose |
 |------|---------|
-| `boost_logger.cpp/h` | Initialises Boost.Log, provides JSON and plain‑text formatters, and convenience logging functions for server events, requests, responses, errors, and debug. |
-| `cmd_parser.h` | Defines the `Args` structure and `ParseCommandLine()` to process command‑line options and validate paths. |
-| `constants.h` | Global constants: game parameters, JSON field names, HTTP content types, API endpoint strings, error codes, and messages. |
-| `json_loader.cpp/h` | Loads the game configuration from a JSON file, parses maps, roads, buildings, offices, loot types, and loot generator settings. Includes diagnostic function `CheckGameLoad()`. |
-| `main_utils.h` | Provides environment variable reading (`GAME_DB_URL`), test database cleanup, worker thread launcher (`RunWorkers`), and a console pause utility. |
-| `sdk.h` | Minimal header to set `WIN32` SDK version (for Windows builds). |
-| `tagged.h` | Implements `Tagged<Value, Tag>` – a generic strong typedef with equality and hashing support. |
-| `ticker.h` | A `std::enable_shared_from_this` timer that runs on a `boost::asio::strand` and invokes a handler with the elapsed time delta. |
-| `utils.cpp/h` | Miscellaneous helpers: filesystem (sub‑path check), geometry (distance, position conversion), direction conversions, random numbers, URL decoding, MIME type detection, and HTTP token extraction. |
+| `application.h` | Main application class. Orchestrates game ticking, player addition, auto‑save, score recording, and database integration. Provides save/load methods and a testable save signal. |
+| `auto_save_manager.h` | Tick‑driven periodic saver. Accumulates delta time and calls `GameStatePersistence::Save` when the period is reached. |
+| `game_clock.h` | Simple game time abstraction. Tracks total elapsed milliseconds and allows advancing time. |
+| `game_state_persistence.h` | Static methods `Save` and `Load` using Boost.TextArchive. Handles errors, missing files, and archive version mismatches. |
+| `player_score_recorder.h` | Records player scores to the database on retirement. Provides `GetTopScores` for leaderboards. |
+| `players.h` / `players.cpp` | Player container and management. Token generation, lookup by token/id/map/session, restoration from saved state, and retirement signal emission. |
+| `token.h` | `Token` strong type with hex string validation and a cryptographically‑inspired generator using two 64‑bit RNGs. |
 
 ## Extra Data
 
 ### Environment Variables
-- `GAME_DB_URL` – PostgreSQL connection string for the game database (read in `main_utils.h`).
+- `GAME_DB_URL` – PostgreSQL connection string (read elsewhere, e.g., in `main_utils.h`), used by `DatabaseInterface` implementations.
 
 ### Integration with Main Server
-The common module is used by the main game server executable. Typical usage:
+Typical usage in the main server executable:
 
 ```cpp
+#include "app/application.h"
 #include "common/cmd_parser.h"
 #include "common/json_loader.h"
 #include "common/boost_logger.h"
+#include "game_db/pooled_database.h"
 
 auto args = parse::ParseCommandLine(argc, argv);
 boost_logger::SendBoostLogToStream();
 auto game = json_loader::LoadGame(args->config_file);
+db::PooledDatabase db(args->db_url);
+boost::asio::io_context ioc;
+
+app::Application app(*game, *args, ioc, db);
+
+// Tick loop (usually driven by a Ticker)
+app.Tick(50ms);
+
+// Add a player
+const auto& player = app.AddPlayer("Alice", "map_1");
+const Token* token = app.GetPlayers().FindTokenByPlayer(player);
 ```
 
-### Logging Example
-JSON log output (console or file):
-
-```json
-{
-  "timestamp": "2025-01-15T12:34:56.789",
-  "data": { "port": 8080, "address": "0.0.0.0" },
-  "message": "Server has started"
-}
-```
-
-### Ticker Usage
+### Auto‑Save Example
+Auto‑save is configured via command‑line arguments (`--save-state-period` and `--state-file`):
 
 ```cpp
-auto strand = net::make_strand(ioc);
-auto ticker = std::make_shared<tick::Ticker>(strand, 50ms, [](auto delta) {
-    game.Update(delta);
+// In Application constructor:
+auto_save_manager_(game_, players_,
+                   std::chrono::milliseconds(cmd_args_.save_state_period),
+                   cmd_args_.state_file)
+```
+
+### Player Retirement Signal Flow
+When a dog remains idle for too long, the `GameSession` emits a dog‑deleted signal. `Players` connects to this signal, emits the `PlayerRetiredSignal` (allowing score recording), then removes the player from all containers.
+
+```cpp
+players_.OnPlayerRetired([](uint32_t dog_id, loot::Score score, const Player& player) {
+    // Record final score and play duration
 });
-ticker->Start();
+```
+
+### Token Generation Example
+Tokens are 32‑character hex strings, generated automatically when a player joins:
+
+```cpp
+Token token = token_gen_();   // e.g., "a1b2c3d4e5f6789012345678abcdef0123456789abcdef0123456789abcdef"
+bool valid = IsTokenValid(*token);  // true
 ```
 
 ---
 
 *This module is part of a larger Game Server project – a multiplayer online game where players control dogs, collect loot, and compete on procedurally generated maps.*
-```
