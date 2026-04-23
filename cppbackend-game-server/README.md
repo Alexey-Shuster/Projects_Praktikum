@@ -1,10 +1,10 @@
 # Game Server Project
 
-The Game Server is a multiplayer online game backend where players control dogs, collect loot and compete on procedurally generated maps.
-Written in modern C++20, the server is designed for high concurrency (ASIO thread pool), extensibility (plugin‑like libraries) and operational robustness (logging, state persistence, graceful shutdown).
+The Game Server is a multiplayer online game backend where players control dogs and collect loot.
+Written in modern C++20, the server is designed for high concurrency (Asio thread pool), extensibility (plugin‑like libraries) and operational robustness (logging, state persistence).
 
-It leverages Boost libraries (ASIO, Beast, Log, Program Options, Serialization, JSON) for networking, logging and data handling, and uses PostgreSQL (via libpqxx) to store leaderboards and support persistent game state (save/restore).
-Additional features include bot AI opponents and a full HTTP/1.1 API for client interaction.
+It leverages Boost libraries (ASIO, Beast, Log, Program Options, Serialization, JSON etc.) for networking, logging and data handling, and uses PostgreSQL (via libpqxx) to store leaderboards and support persistent game state (save/restore).
+Additional features include bot AI opponents and a REST API for client interaction.
 
 The provided CMakeLists.txt is capable of building the project on both Windows and Linux, using either GCC or Clang as the C++ compiler.
 
